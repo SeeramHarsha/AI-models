@@ -1,0 +1,7 @@
+Flask
+google-generativeai
+python-dotenv
+werkzeug
+opencv-python
+shutil
+bpy
