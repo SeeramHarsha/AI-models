@@ -1,0 +1,31 @@
+# Use an official Python image
+FROM python:3.11
+
+# Set the working directory
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Blender (headless mode for scripting)
+RUN apt-get update && apt-get install -y \
+    wget \
+    xvfb \
+    && wget https://mirror.clarkson.edu/blender/release/Blender4.0/blender-4.0.0-linux-x64.tar.xz \
+    && tar -xf blender-4.0.0-linux-x64.tar.xz \
+    && mv blender-4.0.0-linux-x64 /opt/blender \
+    && rm blender-4.0.0-linux-x64.tar.xz
+
+# Set environment variables
+ENV BLENDER_PATH="/opt/blender/blender"
+ENV GEMINI_API_KEY="<your-api-key>"  # Replace with your API key or use .env file
+
+# Copy the application files
+COPY . .
+
+# Expose the application port
+EXPOSE 5000
+
+# Run the application
+CMD ["python", "app.py"]
