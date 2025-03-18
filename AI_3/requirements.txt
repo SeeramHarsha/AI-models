@@ -1,0 +1,9 @@
+Flask
+torch
+transformers
+google-generativeai
+Pillow
+Flask_cors
+gunicorn
+opencv-python
+opencv-python-headless
