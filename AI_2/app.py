@@ -29,9 +29,6 @@ app.secret_key = os.getenv('SECRET_KEY', '74G5X9B2')
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/start_chat', methods=['POST'])
 def start_chat():
