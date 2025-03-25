@@ -93,9 +93,6 @@ def generate_questions(description, topic):
     except Exception as e:
         return f"Error generating questions: {str(e)}"
 
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/chatbot', methods=['POST'])
 def chatbot():
