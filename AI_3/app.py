@@ -1,45 +1,46 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 import google.generativeai as genai
-import random
+import base64
 
 app = Flask(__name__)
 
-# Configure Gemini API
+# Configure Gemini Flash
 genai.configure(api_key="AIzaSyAtZdcm9nN--eMNlWoiF0wRuTwE70mBkV4")
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("models/gemini-1.5-flash")
 
-def get_short_answers(questions):
-    responses = []
-    for q in questions:
-        try:
-            prompt = f"You are an Ai model that answers the questions generated from the image you need to give the answers briefly and make 3 of the questions mcqs give answers with questions:\n{q}"
-            response = model.generate_content(prompt)
-            answer = response.text.strip() if response and hasattr(response, 'text') else "No valid response from Gemini."
-        except Exception as e:
-            answer = "Error processing the question."
-        responses.append(answer)
-    return responses
+# Helper to prepare input file for Gemini
+def load_media(file):
+    return {
+        "mime_type": file.mimetype,
+        "data": base64.b64encode(file.read()).decode()
+    }
 
-def generate_mcqs(questions, answers):
-    mcqs = []
-    for q, ans in zip(questions, answers):
-        options = [ans, "Option 1", "Option 2", "Option 3"]
-        random.shuffle(options)
-        mcqs.append({"question": q, "options": options, "answer": ans})
-    return mcqs
+@app.route('/')
+def index():
+    return render_template("index.html")
 
-@app.route('/', methods=['GET', 'POST'])
-def home():
-    if request.method == 'POST':
-        questions = request.form.getlist('questions')
-        answers = get_short_answers(questions)
-        mcq_questions = questions[:3]
-        mcq_answers = answers[:3]
-        direct_questions = questions[3:]
-        direct_answers = answers[3:]
-        mcqs = generate_mcqs(mcq_questions, mcq_answers)
-        return render_template('result.html', mcqs=mcqs, direct_qas=zip(direct_questions, direct_answers))
-    return render_template('index.html')
+@app.route('/generate_answers', methods=['POST'])
+def generate_answers():
+    data = request.form
+    questions = data.getlist('questions')  # Get the list of questions
+
+    file = request.files['media']  # Get the media (image/video)
+    description = data['description']  # Get the description text
+    
+    media = load_media(file)
+
+    # Generate answers for each question based on the media and description
+    answers = []
+    for question in questions:
+        prompt = f"answer the following question: {question}"
+        
+        response = model.generate_content([prompt, media])
+        answers.append({
+            "question": question,
+            "answer": response.text.strip()
+        })
+
+    return jsonify({'answers': answers})
 
 if __name__ == '__main__':
     app.run(debug=True)
