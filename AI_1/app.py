@@ -1,133 +1,73 @@
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-import cv2
-import torch
 import os
+import mimetypes
+import cv2
+from flask import Flask, request, render_template
 from PIL import Image
 import google.generativeai as genai
 
-os.environ["HF_HOME"] = "/tmp/huggingface"
-
-from transformers import BlipProcessor, BlipForConditionalGeneration
-
-# Flask app setup
+# Setup
 app = Flask(__name__)
-CORS(app)
-
-UPLOAD_FOLDER = "/tmp/uploads"
+UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+genai.configure(api_key="AIzaSyAtZdcm9nN--eMNlWoiF0wRuTwE70mBkV4")
+model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
 
-# Configure Gemini API (Use your API key)
-API_KEY = "AIzaSyAtZdcm9nN--eMNlWoiF0wRuTwE70mBkV4"  # Replace with your actual API key
-genai.configure(api_key=API_KEY)
+# Helpers
+def load_image(path):
+    return Image.open(path)
 
-# Load BLIP model
-device = "cuda" if torch.cuda.is_available() else "cpu"
-processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
-model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to(device)
-
-# Function to get available Gemini model
-def get_gemini_model():
-    try:
-        models = genai.list_models()
-        available_models = [model.name for model in models]
-        print("Available Gemini models:", available_models)
-
-        for model in [
-            "models/gemini-1.5-pro-latest",
-            "models/gemini-1.5-pro-002",
-            "models/gemini-2.0-pro-exp",
-        ]:
-            if model in available_models:
-                return model
-        raise ValueError("No suitable Gemini model found.")
-    except Exception as e:
-        print(f"Error fetching models: {str(e)}")
-        return None
-
-# Get the correct Gemini model
-GEMINI_MODEL = get_gemini_model()
-
-def extract_frame_from_video(video_path):
-    """Extracts the middle frame from a video for processing."""
+def extract_key_frames(video_path, num_frames=5):
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return None
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    step = max(1, total_frames // num_frames)
+    frames = []
 
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    middle_frame_idx = frame_count // 2  # Take the middle frame
+    for i in range(num_frames):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i * step)
+        ret, frame = cap.read()
+        if ret:
+            frame_path = os.path.join(UPLOAD_FOLDER, f"frame_{i}.jpg")
+            cv2.imwrite(frame_path, frame)
+            frames.append(Image.open(frame_path))
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, middle_frame_idx)
-    ret, frame = cap.read()
     cap.release()
+    return frames
 
-    return frame if ret else None
+def generate_questions(visuals, concept):
+    prompt = f"""
+You are an intelligent tutor AI.
 
-def generate_caption(image):
-    """Generates a description for an image using BLIP."""
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image)
-    inputs = processor(images=image, return_tensors="pt").to(device)
+Analyze the visual input carefully and combine that understanding with the given concept: "{concept}"
 
-    with torch.no_grad():
-        output = model.generate(**inputs)
-    
-    caption = processor.tokenizer.decode(output[0], skip_special_tokens=True)
-    return caption
+Then generate 5 simple questions relevant that relate the concept to the visual scene and 3 in 7 should be mcqs.
 
-def generate_questions(description, topic):
-    """Generate questions based on the image description and user-given topic."""
-    if not description.strip() or not topic.strip():
-        return "⚠️ Description or topic missing. Cannot generate questions."
+Each question should reflect how the concept can be applied or understood in the context of what is seen in the image/video.
+"""
+    response = model.generate_content([prompt] + visuals)
+    return response.text.strip()
 
-    if not GEMINI_MODEL:
-        return "⚠️ No valid Gemini model found. Cannot generate questions."
+# Routes
+@app.route("/", methods=["GET", "POST"])
+def index():
+    questions = ""
+    if request.method == "POST":
+        file = request.files["file"]
+        concept = request.form["concept"]
+        if file and concept:
+            file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+            file.save(file_path)
 
-    prompt = f"Based on the following description: '{description}', generate 7 questions  related to {topic}."
-    
-    try:
-        gen_model = genai.GenerativeModel(GEMINI_MODEL)
-        response = gen_model.generate_content(prompt)
-        return response.text.strip() if response.text else "⚠️ No questions generated."
-    except Exception as e:
-        return f"Error generating questions: {str(e)}"
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if mime_type.startswith("image"):
+                visuals = [load_image(file_path)]
+            elif mime_type.startswith("video"):
+                visuals = extract_key_frames(file_path)
+            else:
+                return render_template("index.html", questions="Unsupported file type.")
 
+            questions = generate_questions(visuals, concept)
 
-@app.route('/chatbot', methods=['POST'])
-def chatbot():
-    """Chatbot endpoint that takes an image or video and topic, and generates questions."""
-    if 'file' not in request.files or 'topic' not in request.form:
-        return jsonify({"error": "Image/Video and topic are required."}), 400
-
-    file = request.files['file']
-    topic = request.form['topic']
-    
-    if file.filename == '':
-        return jsonify({"error": "No selected file."}), 400
-
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-    file.save(filepath)
-
-    # Check file type
-    file_extension = file.filename.split('.')[-1].lower()
-    if file_extension in ['jpg', 'jpeg', 'png']:
-        image = cv2.imread(filepath)  # Directly read the image
-    elif file_extension in ['mp4', 'avi', 'mov', 'mkv']:
-        image = extract_frame_from_video(filepath)  # Extract frame from video
-        if image is None:
-            return jsonify({"error": "Could not extract frame from video."}), 400
-    else:
-        return jsonify({"error": "Unsupported file type. Upload an image or video."}), 400
-
-    caption = generate_caption(image)
-    qna = generate_questions(caption, topic)
-
-    os.remove(filepath)  # Clean up uploaded file
-
-    return jsonify({
-        "questions": qna
-    })
+    return render_template("index.html", questions=questions)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7860)
+    app.run(debug=True)
