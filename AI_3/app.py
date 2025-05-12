@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 import google.generativeai as genai
 import base64
 
@@ -15,25 +15,19 @@ def load_media(file):
         "data": base64.b64encode(file.read()).decode()
     }
 
-@app.route('/')
-def index():
-    return render_template("index.html")
-
 @app.route('/generate_answers', methods=['POST'])
 def generate_answers():
     data = request.form
-    questions = data.getlist('questions')  # Get the list of questions
-
-    file = request.files['media']  # Get the media (image/video)
-    description = data['description']  # Get the description text
+    questions = data.getlist('questions')  # List of questions
+    file = request.files['media']          # Uploaded media
+    description = data['description']      # Description or concept
     
     media = load_media(file)
 
-    # Generate answers for each question based on the media and description
+    # Generate answers using the model
     answers = []
     for question in questions:
-        prompt = f"answer the following question: {question}"
-        
+        prompt = f"Analyze the concept '{description}' and answer the question: {question}"
         response = model.generate_content([prompt, media])
         answers.append({
             "question": question,
