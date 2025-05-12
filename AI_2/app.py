@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 import google.generativeai as genai
 import base64
 
@@ -14,10 +14,6 @@ def load_media(file):
         "mime_type": file.mimetype,
         "data": base64.b64encode(file.read()).decode()
     }
-
-@app.route('/')
-def index():
-    return render_template("index.html")
 
 @app.route('/generate_questions', methods=['POST'])
 def generate_questions():
@@ -40,11 +36,8 @@ Output format:
     ])
 
     raw_output = response.text.strip()
-
-    # Clean and extract individual questions
     questions = [q.strip().split(". ", 1)[-1] for q in raw_output.split("\n") if q.strip()]
     return jsonify({'questions': questions})
-
 
 @app.route('/answer_question', methods=['POST'])
 def answer_question():
@@ -65,10 +58,8 @@ Answer the question clearly and concisely:
         media
     ])
 
-    # Clean response to remove excess spacing
     clean_answer = response.text.strip().replace('\n', ' ')
     return jsonify({'answer': clean_answer})
-
 
 if __name__ == '__main__':
     app.run(debug=True)
