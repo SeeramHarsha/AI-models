@@ -1,7 +1,7 @@
 import os
 import mimetypes
 import cv2
-from flask import Flask, request, render_template
+from flask import Flask, request, jsonify
 from PIL import Image
 import google.generativeai as genai
 
@@ -47,27 +47,32 @@ Each question should reflect how the concept can be applied or understood in the
     return response.text.strip()
 
 # Routes
-@app.route("/", methods=["GET", "POST"])
-def index():
-    questions = ""
-    if request.method == "POST":
-        file = request.files["file"]
-        concept = request.form["concept"]
-        if file and concept:
-            file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(file_path)
+@app.route("/generate-questions", methods=["POST"])
+def generate_questions_endpoint():
+    file = request.files.get("file")
+    concept = request.form.get("concept")
 
-            mime_type, _ = mimetypes.guess_type(file_path)
-            if mime_type.startswith("image"):
-                visuals = [load_image(file_path)]
-            elif mime_type.startswith("video"):
-                visuals = extract_key_frames(file_path)
-            else:
-                return render_template("index.html", questions="Unsupported file type.")
+    if not file or not concept:
+        return jsonify({"error": "File and concept are required"}), 400
 
-            questions = generate_questions(visuals, concept)
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(file_path)
 
-    return render_template("index.html", questions=questions)
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type and mime_type.startswith("image"):
+        visuals = [load_image(file_path)]
+    elif mime_type and mime_type.startswith("video"):
+        visuals = extract_key_frames(file_path)
+    else:
+        return jsonify({"error": "Unsupported file type"}), 400
+
+    questions = generate_questions(visuals, concept)
+    return jsonify({"questions": questions})
+
+# Optional: simple health check for browser access
+@app.route("/", methods=["GET"])
+def health_check():
+    return "API is running. Use POST /generate-questions with 'file' and 'concept'."
 
 if __name__ == "__main__":
     app.run(debug=True)
